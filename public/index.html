@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Flyover Studio — 3D TCX Route Videos for Instagram</title>
+  <link
+    rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.10.0/dist/maplibre-gl.css"
+    crossorigin="anonymous"
+  />
+  <link rel="stylesheet" href="styles.css?v=9" />
+  <script
+    src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.10.0/dist/maplibre-gl.js"
+    crossorigin="anonymous"
+  ></script>
+</head>
+<body>
+  <div class="app-shell">
+    <!-- Top Bar -->
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 18l5-10 4 6 3-4 6 8H3z" />
+          </svg>
+        </div>
+        <div class="brand-copy">
+          <h1>Flyover Studio</h1>
+          <span>3D TCX Route Video Builder for Instagram</span>
+        </div>
+      </div>
+
+      <div class="topbar-status">
+        <span id="encoder-pill" class="status-pill">Checking H.264 encoder…</span>
+      </div>
+    </header>
+
+    <!-- Main 3-Column Studio Workspace -->
+    <main class="studio-grid">
+      <!-- Left Sidebar: TCX Input & 3D Scene -->
+      <aside class="panel sidebar-left">
+        <section class="panel-section">
+          <div class="section-header">
+            <h2>1. Activity Input (.TCX)</h2>
+            <span class="hint-tag">TCX / GPX Track</span>
+          </div>
+
+          <label id="drop-zone" class="drop-zone" for="tcx-file-input" tabindex="0">
+            <input
+              id="tcx-file-input"
+              type="file"
+              accept=".tcx,.gpx,application/xml,text/xml"
+              hidden
+            />
+            <div class="drop-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="17 8 12 3 7 8" />
+                <line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
+            </div>
+            <div class="drop-text">
+              <strong>Drop your .tcx file here</strong>
+              <span>or click to browse (.tcx, .gpx)</span>
+            </div>
+          </label>
+
+          <div class="sample-strip">
+            <span class="mini-label">Try sample routes:</span>
+            <div class="sample-pills">
+              <button type="button" class="sample-btn active" data-sample="samples/marin-headlands-trail-run.tcx">
+                Marin Headlands Run
+              </button>
+              <button type="button" class="sample-btn" data-sample="samples/alpe-dhuez-climb.tcx">
+                Alpe d'Huez Climb
+              </button>
+              <button type="button" class="sample-btn" data-sample="samples/central-park-tempo.tcx">
+                Central Park Tempo
+              </button>
+            </div>
+          </div>
+
+          <div id="error-banner" class="error-banner hidden" role="alert"></div>
+
+          <div id="activity-summary-strip" class="activity-summary-strip">
+            <div class="summary-metric">
+              <span>Distance</span>
+              <strong id="summary-dist">—</strong>
+            </div>
+            <div class="summary-metric">
+              <span>Elev Gain</span>
+              <strong id="summary-gain">—</strong>
+            </div>
+            <div class="summary-metric">
+              <span>Time</span>
+              <strong id="summary-time">—</strong>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel-section">
+          <div class="section-header">
+            <h2>2. Route Details & Trim</h2>
+          </div>
+
+          <div class="field-group">
+            <label for="input-title">Activity Title</label>
+            <input id="input-title" type="text" maxlength="80" placeholder="Morning Trail Run" />
+          </div>
+
+          <div class="field-row">
+            <div class="field-group">
+              <label for="select-sport">Sport</label>
+              <select id="select-sport">
+                <option value="Running">Running</option>
+                <option value="Cycling">Cycling</option>
+                <option value="Hiking">Hiking</option>
+                <option value="Walking">Walking</option>
+                <option value="Skiing">Skiing</option>
+              </select>
+            </div>
+            <div class="field-group">
+              <label for="select-units">Units</label>
+              <select id="select-units">
+                <option value="metric">Metric (km / m)</option>
+                <option value="imperial">Imperial (mi / ft)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="slider-group">
+            <div class="slider-label">
+              <span>Trim Start</span>
+              <strong id="val-trim-start">0%</strong>
+            </div>
+            <input id="range-trim-start" type="range" min="0" max="80" step="1" value="0" />
+          </div>
+
+          <div class="slider-group">
+            <div class="slider-label">
+              <span>Trim End</span>
+              <strong id="val-trim-end">100%</strong>
+            </div>
+            <input id="range-trim-end" type="range" min="20" max="100" step="1" value="100" />
+          </div>
+        </section>
+
+        <section class="panel-section">
+          <div class="section-header">
+            <h2>3. 3D Map & Route Style</h2>
+          </div>
+
+          <div class="map-style-grid" id="map-style-grid">
+            <button type="button" class="style-card active" data-style="satellite">
+              <span class="swatch swatch-sat"></span>
+              <span>Satellite 3D</span>
+            </button>
+            <button type="button" class="style-card" data-style="dark">
+              <span class="swatch swatch-dark"></span>
+              <span>Dark 3D</span>
+            </button>
+            <button type="button" class="style-card" data-style="topo">
+              <span class="swatch swatch-topo"></span>
+              <span>Topo 3D</span>
+            </button>
+            <button type="button" class="style-card" data-style="light">
+              <span class="swatch swatch-light"></span>
+              <span>Light 3D</span>
+            </button>
+          </div>
+
+          <div class="toggle-row">
+            <label class="checkbox-label">
+              <input id="chk-labels" type="checkbox" checked />
+              <span>Show place & road labels (Satellite)</span>
+            </label>
+            <label class="checkbox-label">
+              <input id="chk-splits" type="checkbox" checked />
+              <span>Show distance split labels</span>
+            </label>
+            <div id="split-label-controls" class="sub-controls">
+              <div class="field-row">
+                <div class="field-group">
+                  <label>Split Unit</label>
+                  <div class="segmented-control" id="split-unit-segmented">
+                    <button type="button" class="seg-btn active" data-split-unit="km">km</button>
+                    <button type="button" class="seg-btn" data-split-unit="mi">mi</button>
+                  </div>
+                </div>
+                <div class="field-group">
+                  <label for="select-split-interval">Interval</label>
+                  <select id="select-split-interval">
+                    <option value="1" selected>Every 1</option>
+                    <option value="2">Every 2</option>
+                    <option value="5">Every 5</option>
+                    <option value="10">Every 10</option>
+                  </select>
+                </div>
+              </div>
+              <label class="checkbox-label">
+                <input id="chk-split-show-unit" type="checkbox" checked />
+                <span>Show unit text ("1 km" vs "1")</span>
+              </label>
+              <div class="slider-group">
+                <div class="slider-label">
+                  <span>Split Label Size</span>
+                  <strong id="val-split-size">2.0x</strong>
+                </div>
+                <input id="range-split-size" type="range" min="0.6" max="2.4" step="0.1" value="2.0" />
+              </div>
+              <div class="slider-group">
+                <div class="slider-label">
+                  <span>Appear Timing (vs Head)</span>
+                  <strong id="val-split-lead">+0.2s ahead</strong>
+                </div>
+                <input id="range-split-lead" type="range" min="-1.0" max="3.0" step="0.1" value="0.2" />
+              </div>
+              <div class="slider-group">
+                <div class="slider-label">
+                  <span>Fade-In Duration</span>
+                  <strong id="val-split-fade">0.6s</strong>
+                </div>
+                <input id="range-split-fade" type="range" min="0.1" max="1.5" step="0.1" value="0.6" />
+              </div>
+            </div>
+            <label class="checkbox-label">
+              <input id="chk-tail-fade" type="checkbox" checked />
+              <span>Glowing head &amp; faded tail (Comet)</span>
+            </label>
+          </div>
+
+          <div class="slider-group">
+            <div class="slider-label">
+              <span>3D Terrain Exaggeration</span>
+              <strong id="val-exaggeration">1.4x</strong>
+            </div>
+            <input id="range-exaggeration" type="range" min="0" max="2.5" step="0.1" value="1.4" />
+          </div>
+
+          <div class="field-group">
+            <label for="select-color-mode">Route Line Coloring</label>
+            <select id="select-color-mode">
+              <option value="orange">Blaze Orange (#FC4C02)</option>
+              <option value="pace">Speed / Pace Heatmap</option>
+              <option value="elevation">Elevation Heatmap</option>
+              <option value="hr">Heart Rate Heatmap</option>
+              <option value="cyan">Neon Cyan (#00F0FF)</option>
+              <option value="lime">Volt Lime (#CCFF00)</option>
+              <option value="magenta">Hot Magenta (#FF2E93)</option>
+            </select>
+          </div>
+
+          <div class="slider-group">
+            <div class="slider-label">
+              <span>Track Glow Intensity</span>
+              <strong id="val-glow-intensity">1.2x</strong>
+            </div>
+            <input id="range-glow-intensity" type="range" min="0" max="2.0" step="0.1" value="1.2" />
+          </div>
+
+          <div class="slider-group">
+            <div class="slider-label">
+              <span>Track Smoothness</span>
+              <strong id="val-track-smooth">0.4x</strong>
+            </div>
+            <input id="range-track-smooth" type="range" min="0" max="2.0" step="0.1" value="0.4" />
+          </div>
+        </section>
+
+        <section class="panel-section">
+          <div class="section-header">
+            <h2>4. 3D Camera Choreography</h2>
+          </div>
+
+          <div class="field-group">
+            <label for="select-camera-mode">Camera Mode</label>
+            <select id="select-camera-mode">
+              <option value="chase">Dynamic Chase (Behind Athlete)</option>
+              <option value="orbit">Cinematic Orbit Sweep</option>
+              <option value="overview">3D Full-Route Overview</option>
+            </select>
+          </div>
+
+          <div class="slider-group">
+            <div class="slider-label">
+              <span>Camera Pitch</span>
+              <strong id="val-pitch">54°</strong>
+            </div>
+            <input id="range-pitch" type="range" min="25" max="60" step="1" value="54" />
+          </div>
+
+          <div class="slider-group">
+            <div class="slider-label">
+              <span>Zoom Offset</span>
+              <strong id="val-zoom-offset">0.0</strong>
+            </div>
+            <input id="range-zoom-offset" type="range" min="-1.8" max="1.8" step="0.1" value="0" />
+          </div>
+
+          <div class="slider-group">
+            <div class="slider-label">
+              <span>Camera Motion Blur</span>
+              <strong id="val-motion-blur">45%</strong>
+            </div>
+            <input id="range-motion-blur" type="range" min="0" max="100" step="5" value="45" />
+          </div>
+        </section>
+      </aside>
+
+      <!-- Center Stage: WYSIWYG Aspect-Ratio Preview & Playback Transport -->
+      <section class="center-stage">
+        <div class="stage-header">
+          <div id="stage-spec-badge" class="stage-spec-badge">
+            Instagram Reels • 9:16 • 1080×1920 • H.264 MP4
+          </div>
+          <button type="button" id="btn-safe-zones" class="btn-ghost" aria-pressed="false">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="4 3" />
+              <line x1="3" y1="8" x2="21" y2="8" />
+              <line x1="3" y1="17" x2="21" y2="17" />
+            </svg>
+            <span>Instagram Safe Zones</span>
+          </button>
+        </div>
+
+        <div id="stage-viewport" class="stage-viewport">
+          <div id="stage-wrapper" class="stage-wrapper">
+            <div id="capture-stage" class="capture-stage">
+              <div id="map-canvas-wrap" class="map-canvas-wrap"></div>
+              <canvas id="hud-canvas" class="hud-canvas"></canvas>
+            </div>
+          </div>
+
+          <!-- Export Rendering Overlay -->
+          <div id="export-overlay" class="export-overlay hidden" aria-live="polite">
+            <div class="export-card">
+              <div class="spinner" aria-hidden="true"></div>
+              <h3>Exporting Instagram MP4</h3>
+              <p id="export-progress-msg">Preparing frames…</p>
+              <div class="progress-track">
+                <div id="export-progress-fill" class="progress-fill" style="width: 0%"></div>
+              </div>
+              <div class="progress-meta">
+                <span id="export-progress-pct">0%</span>
+                <button type="button" id="btn-cancel-export" class="btn-secondary-sm">Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Transport Bar -->
+        <div class="transport-bar">
+          <div class="transport-buttons">
+            <button type="button" id="btn-play-pause" class="btn-icon-primary" title="Play / Pause (Space)">
+              <svg id="icon-play" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                <polygon points="6 4 20 12 6 20 6 4" />
+              </svg>
+              <svg id="icon-pause" class="hidden" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                <rect x="6" y="4" width="4" height="16" />
+                <rect x="14" y="4" width="4" height="16" />
+              </svg>
+            </button>
+            <button type="button" id="btn-restart" class="btn-icon" title="Restart">
+              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="1 4 1 10 7 10" />
+                <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+              </svg>
+            </button>
+          </div>
+
+          <div class="scrubber-wrap">
+            <div class="scrubber-acts" aria-hidden="true">
+              <span style="width: 12%">Intro</span>
+              <span style="width: 74%">3D Flyover</span>
+              <span style="width: 14%">Finale</span>
+            </div>
+            <input id="timeline-scrubber" type="range" min="0" max="1000" step="1" value="0" />
+          </div>
+
+          <div class="transport-meta">
+            <span id="time-readout" class="tabular">0:00 / 0:30</span>
+            <select id="select-playback-rate" aria-label="Preview playback speed">
+              <option value="0.5">0.5x</option>
+              <option value="1" selected>1x</option>
+              <option value="2">2x</option>
+            </select>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right Sidebar: Instagram Formats, HUD & MP4 Export -->
+      <aside class="panel sidebar-right">
+        <section class="panel-section">
+          <div class="section-header">
+            <h2>5. Instagram Format</h2>
+            <span class="hint-tag">MP4 / H.264</span>
+          </div>
+
+          <div id="preset-grid" class="preset-grid">
+            <button type="button" class="preset-card active" data-preset="reels_9_16">
+              <div class="ratio-thumb ratio-9-16"></div>
+              <div class="preset-copy">
+                <strong>9:16 Reels / Stories</strong>
+                <span>1080 × 1920</span>
+              </div>
+            </button>
+
+            <button type="button" class="preset-card" data-preset="portrait_4_5">
+              <div class="ratio-thumb ratio-4-5"></div>
+              <div class="preset-copy">
+                <strong>4:5 Feed Portrait</strong>
+                <span>1080 × 1350</span>
+              </div>
+            </button>
+
+            <button type="button" class="preset-card" data-preset="square_1_1">
+              <div class="ratio-thumb ratio-1-1"></div>
+              <div class="preset-copy">
+                <strong>1:1 Feed Square</strong>
+                <span>1080 × 1080</span>
+              </div>
+            </button>
+
+            <button type="button" class="preset-card" data-preset="landscape_16_9">
+              <div class="ratio-thumb ratio-16-9"></div>
+              <div class="preset-copy">
+                <strong>16:9 Landscape</strong>
+                <span>1920 × 1080</span>
+              </div>
+            </button>
+          </div>
+        </section>
+
+        <section class="panel-section">
+          <div class="section-header">
+            <h2>6. HUD Overlay Layers</h2>
+          </div>
+
+          <div class="toggle-row">
+            <label class="checkbox-label">
+              <input id="chk-hud-header" type="checkbox" checked />
+              <span>Activity Header & Sport Badge</span>
+            </label>
+            <label class="checkbox-label">
+              <input id="chk-hud-stats" type="checkbox" checked />
+              <span>Live Telemetry (Dist, Elev, Pace, HR/W)</span>
+            </label>
+            <label class="checkbox-label">
+              <input id="chk-hud-elevation" type="checkbox" />
+              <span>Elevation Profile Chart</span>
+            </label>
+            <label class="checkbox-label">
+              <input id="chk-hud-speed" type="checkbox" checked />
+              <span>Speed / Pace Chart</span>
+            </label>
+            <label class="checkbox-label">
+              <input id="chk-hud-hr" type="checkbox" checked />
+              <span>Heart Rate Chart</span>
+              <span id="hr-data-badge" class="hint-tag hidden">No HR</span>
+            </label>
+            <label class="checkbox-label">
+              <input id="chk-hud-summary" type="checkbox" checked />
+              <span>Finale Summary Card (End of Video)</span>
+            </label>
+          </div>
+        </section>
+
+        <section class="panel-section export-section">
+          <div class="section-header">
+            <h2>7. Video Settings & Export</h2>
+          </div>
+
+          <div class="field-group">
+            <label>Resolution Tier</label>
+            <div class="segmented-control" id="quality-segmented">
+              <button type="button" class="seg-btn active" data-quality="full">Full HD (1080p)</button>
+              <button type="button" class="seg-btn" data-quality="fast">Fast HD (720p)</button>
+            </div>
+          </div>
+
+          <div class="field-row">
+            <div class="field-group">
+              <label for="select-duration">Video Length</label>
+              <select id="select-duration">
+                <option value="15">15 seconds</option>
+                <option value="30" selected>30 seconds</option>
+                <option value="45">45 seconds</option>
+                <option value="60">60 seconds</option>
+              </select>
+            </div>
+            <div class="field-group">
+              <label for="select-fps">Frame Rate</label>
+              <select id="select-fps">
+                <option value="30" selected>30 FPS (IG Standard)</option>
+                <option value="60">60 FPS (Smooth)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="spec-box">
+            <div><span>Video Codec</span><strong>H.264 Main (avc1 / yuv420p)</strong></div>
+            <div><span>Audio Track</span><strong>AAC Stereo 44.1 kHz (IG Ready)</strong></div>
+            <div><span>Output Size</span><strong id="export-target-dim">1080 × 1920 · 30 fps</strong></div>
+          </div>
+
+          <button type="button" id="btn-export-mp4" class="btn-export">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            <span>Export Video for Instagram (.mp4)</span>
+          </button>
+        </section>
+      </aside>
+    </main>
+  </div>
+
+  <!-- Export Ready Modal -->
+  <div id="export-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div>
+          <span class="modal-badge">Instagram-Ready MP4</span>
+          <h2 id="modal-title">Your 3D Flyover Video is Ready</h2>
+        </div>
+        <button type="button" id="btn-close-modal" class="btn-close" aria-label="Close modal">✕</button>
+      </div>
+
+      <div class="modal-video-wrap">
+        <video id="export-preview-video" controls loop playsinline></video>
+      </div>
+
+      <div id="modal-specs" class="modal-specs">
+        <span>MP4 (H.264 yuv420p)</span>
+        <span>•</span>
+        <span id="modal-res">1080×1920</span>
+        <span>•</span>
+        <span id="modal-size">—</span>
+      </div>
+
+      <div class="modal-actions">
+        <a id="download-mp4-btn" class="btn-export" href="#" download="flyover-instagram.mp4">
+          Download MP4 for Instagram
+        </a>
+        <button type="button" id="btn-web-share" class="btn-secondary hidden">
+          Share to Instagram / Apps
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="js/app.mjs?v=9"></script>
+</body>
+</html>

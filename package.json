@@ -1,0 +1,10 @@
+{
+  "name": "flyover-studio",
+  "version": "1.0.0",
+  "description": "3D TCX flyover video studio exporting Instagram-ready H.264 MP4s",
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test test/*.test.mjs"
+  }
+}
