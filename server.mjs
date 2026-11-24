@@ -8,6 +8,7 @@ import { FfmpegEncodeManager, sanitizeFilename } from './lib/encoder.mjs';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PUBLIC_DIR = path.join(__dirname, 'public');
+const HOST = process.env.HOST || '0.0.0.0';
 const PORT = Number(process.env.PORT || 3456);
 const MAX_FRAME_BATCH_BYTES = 50 * 1024 * 1024;
 
@@ -269,8 +270,11 @@ export function createAppServer() {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
   const server = createAppServer();
-  server.listen(PORT, () => {
-    console.log(`Flyover Studio listening at http://localhost:${PORT} (encoder: ${server.encoderManager.encoderName})`);
+  server.listen(PORT, HOST, () => {
+    const displayHost = HOST === '0.0.0.0' || HOST === '::' ? 'localhost' : HOST;
+    console.log(
+      `Flyover Studio listening at http://${displayHost}:${PORT} (encoder: ${server.encoderManager.encoderName})`
+    );
   });
 
   const shutdown = async () => {

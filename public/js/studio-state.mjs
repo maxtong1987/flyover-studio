@@ -44,7 +44,9 @@ export const DEFAULT_STUDIO_STATE = Object.freeze({
   lastExportResult: null
 });
 
-const RENDER_SETTING_KEYS = [
+export const DEFAULT_TIMELINE_SAMPLES = 950;
+
+export const RENDER_SETTING_KEYS = Object.freeze([
   'durationSec',
   'fps',
   'mapStyle',
@@ -75,10 +77,24 @@ const RENDER_SETTING_KEYS = [
   'showHeartRateChart',
   'showSummaryCard',
   'showSafeZones'
-];
+]);
 
 export function createStudioState() {
   return { ...DEFAULT_STUDIO_STATE };
+}
+
+/**
+ * Applies parsed activity defaults onto a studio state object while optionally
+ * preserving explicit title/sport overrides (used by both the web app and headless CLI).
+ */
+export function applyActivityToState(state, activity, overrides = {}) {
+  state.activity = activity;
+  state.title = overrides.title || activity.title;
+  state.sport = overrides.sport || activity.sport;
+  if (!activity.hasHeartRate) {
+    state.showHeartRateChart = false;
+  }
+  return state;
 }
 
 export function getTargetDimensions(state) {

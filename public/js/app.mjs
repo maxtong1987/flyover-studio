@@ -10,6 +10,8 @@ import { FlyoverMapScene } from './map-scene.mjs';
 import { renderHud } from './hud-renderer.mjs';
 import { exportInstagramVideo } from './exporter.mjs';
 import {
+  DEFAULT_TIMELINE_SAMPLES,
+  applyActivityToState,
   createStudioState,
   getTargetDimensions,
   buildRenderSettings,
@@ -136,7 +138,7 @@ function rebuildTimeline({ resetProgress = false } = {}) {
   state.timeline = buildFlyoverTimeline(state.activity, {
     trimStart: state.trimStart,
     trimEnd: state.trimEnd,
-    numSamples: 950,
+    numSamples: DEFAULT_TIMELINE_SAMPLES,
     trackSmoothness: state.trackSmoothness
   });
   if (resetProgress) {
@@ -150,9 +152,7 @@ function loadActivityXml(xmlText, fileName, { samplePath = null } = {}) {
   try {
     clearError();
     const parsed = parseTcx(xmlText, fileName);
-    state.activity = parsed;
-    state.title = parsed.title;
-    state.sport = parsed.sport;
+    applyActivityToState(state, parsed);
     state.trimStart = 0;
     state.trimEnd = 1;
     state.isPlaying = false;
@@ -173,7 +173,6 @@ function loadActivityXml(xmlText, fileName, { samplePath = null } = {}) {
     els.chkHudHr.disabled = !parsed.hasHeartRate;
     els.hrDataBadge.classList.toggle('hidden', parsed.hasHeartRate);
     if (!parsed.hasHeartRate) {
-      state.showHeartRateChart = false;
       els.chkHudHr.checked = false;
     }
 

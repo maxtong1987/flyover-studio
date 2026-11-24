@@ -25,6 +25,14 @@ import { computeSplitRevealState } from '../public/js/route-renderer.mjs';
 import { getSampleColor, isHeatmapColorMode, tintHexTowardWhite } from '../public/js/canvas-utils.mjs';
 import { formatSplitLeadLabel, syncStudioControlsFromState } from '../public/js/dom-bindings.mjs';
 import {
+  buildTemplateConfig,
+  loadAndResolveCliJob,
+  parseCliArgs,
+  resolvePlaywrightBrowsersPath
+} from '../lib/cli-config.mjs';
+import { buildChromiumArgs, resolveEffectiveWebglOrder } from '../cli.mjs';
+import {
+  applyActivityToState,
   createStudioState,
   getTargetDimensions,
   buildRenderSettings,
@@ -1018,4 +1026,92 @@ test('syncStudioControlsFromState and canvas/format helpers stay consistent with
   assert.equal(mockEls.selectColorMode.value, 'orange');
   assert.equal(mockEls.splitUnitBtns[0].classList.has('active'), true);
   assert.equal(mockEls.splitUnitBtns[1].classList.has('active'), false);
+});
+
+test('cli-config parses flags, merges JSON config with overrides, and validates inputs', async () => {
+  const os = await import('node:os');
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'flyover-cli-test-'));
+
+  try {
+    const tpl = buildTemplateConfig();
+    assert.equal(tpl.presetId, 'reels_9_16');
+    assert.equal(tpl.splitLabelSize, 2.0);
+    assert.equal(tpl.splitLeadAheadSec, 0.2);
+    assert.equal(tpl.showElevationChart, false);
+    assert.equal(tpl.showSpeedChart, true);
+    assert.equal(tpl.showHeartRateChart, true);
+
+    const cfgPath = path.join(tmpDir, 'my-config.json');
+    await fs.writeFile(
+      cfgPath,
+      JSON.stringify({
+        input: './sample.tcx',
+        output: './exports/out.mp4',
+        presetId: 'portrait_4_5',
+        colorMode: 'cyan',
+        durationSec: 20,
+        units: 'imperial',
+        showElevationChart: true
+      }),
+      'utf8'
+    );
+
+    const resolved = await loadAndResolveCliJob(
+      ['--config', cfgPath, '--color', 'lime', '--duration=15', '--no-hr-chart', '--quality', 'fast'],
+      { cwd: tmpDir }
+    );
+    assert.equal(resolved.inputPath, path.join(tmpDir, 'sample.tcx'));
+    assert.equal(resolved.outputPath, path.join(tmpDir, 'exports', 'out.mp4'));
+    assert.equal(resolved.state.presetId, 'portrait_4_5');
+    assert.equal(resolved.state.colorMode, 'lime'); // CLI flag overrides JSON config
+    assert.equal(resolved.state.durationSec, 15);
+    assert.equal(resolved.state.quality, 'fast');
+    assert.equal(resolved.state.units, 'imperial');
+    assert.equal(resolved.state.splitUnit, 'mi'); // auto-synced from units
+    assert.equal(resolved.state.showElevationChart, true);
+    assert.equal(resolved.state.showHeartRateChart, false);
+
+    // Inline --init-config
+    const initArgs = parseCliArgs(['--init-config', 'starter.json']);
+    assert.equal(initArgs.initConfigPath, 'starter.json');
+
+    // Rejects invalid enum and unknown config key
+    await assert.rejects(
+      () => loadAndResolveCliJob(['run.tcx', '--color', 'neon-plaid'], { cwd: tmpDir }),
+      /Invalid colorMode/
+    );
+    const badCfgPath = path.join(tmpDir, 'bad.json');
+    await fs.writeFile(badCfgPath, JSON.stringify({ bogusKey: 123 }), 'utf8');
+    await assert.rejects(
+      () => loadAndResolveCliJob(['run.tcx', '--config', badCfgPath], { cwd: tmpDir }),
+      /Unknown config key/
+    );
+
+    // Shared CLI browser & activity helpers
+    assert.equal(
+      resolvePlaywrightBrowsersPath('/app', {}),
+      path.join('/app', '.playwright-browsers')
+    );
+    assert.equal(
+      resolvePlaywrightBrowsersPath('/app', { PLAYWRIGHT_BROWSERS_PATH: '/ms-playwright' }),
+      '/ms-playwright'
+    );
+    assert.deepEqual(resolveEffectiveWebglOrder('auto', { hasDri: true }), ['gpu', 'swiftshader']);
+    assert.deepEqual(resolveEffectiveWebglOrder('auto', { hasDri: false }), ['swiftshader']);
+    assert.deepEqual(resolveEffectiveWebglOrder('swiftshader', { hasDri: true }), ['swiftshader']);
+    assert.ok(buildChromiumArgs('swiftshader').includes('--use-angle=swiftshader'));
+    assert.ok(buildChromiumArgs('gpu').includes('--enable-webgl'));
+
+    const st = createStudioState();
+    applyActivityToState(
+      st,
+      { title: 'Morning Run', sport: 'Running', hasHeartRate: false },
+      { title: 'Custom Title' }
+    );
+    assert.equal(st.title, 'Custom Title');
+    assert.equal(st.sport, 'Running');
+    assert.equal(st.showHeartRateChart, false);
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
 });

@@ -1,0 +1,8 @@
+.git
+node_modules
+.playwright-browsers
+*.mp4
+*.log
+*.tmp
+test
+scripts

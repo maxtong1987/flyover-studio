@@ -1,0 +1,22 @@
+services:
+  web:
+    build:
+      context: .
+      target: web
+    image: flyover-studio-web
+    ports:
+      - "${PORT:-3456}:3456"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3456
+    restart: unless-stopped
+
+  cli:
+    profiles: ["cli"]
+    build:
+      context: .
+      target: cli
+    image: flyover-studio-cli
+    working_dir: /work
+    volumes:
+      - ".:/work:Z"

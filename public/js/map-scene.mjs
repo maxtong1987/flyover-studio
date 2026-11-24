@@ -572,7 +572,8 @@ export class FlyoverMapScene {
       await this._waitForSingleRender(35);
     }
     if (!this.isPrimaryTerrainAndBasemapLoaded()) {
-      await this._waitForPrimarySources(25);
+      const waitMs = Math.max(25, Number(settings?.exportTileWaitMs || 25));
+      await this._waitForPrimarySources(waitMs);
       const reSynced = this._flushMapRenderSync();
       if (!reSynced) {
         await this._waitForSingleRender(20);
@@ -586,6 +587,7 @@ export class FlyoverMapScene {
    */
   async prewarmRouteTiles(timeline, settings, evaluateFrameFn, onProgress = () => {}, abortSignal = null) {
     await this.waitUntilLoaded();
+    const prewarmWaitMs = Math.max(260, Number(settings?.prewarmTileWaitMs || 260));
     const waypoints = [0.0, 0.11, 0.22, 0.33, 0.44, 0.55, 0.66, 0.77, 0.88, 1.0];
     for (let i = 0; i < waypoints.length; i += 1) {
       if (abortSignal?.aborted) {
@@ -595,10 +597,18 @@ export class FlyoverMapScene {
       this.applyFrame(state, timeline, settings);
       this._flushMapRenderSync();
       if (!this.isPrimaryTerrainAndBasemapLoaded()) {
-        await this._waitForPrimarySources(260);
+        await this._waitForPrimarySources(prewarmWaitMs);
         this._flushMapRenderSync();
       }
       onProgress((i + 1) / waypoints.length);
+    }
+  }
+
+  destroy() {
+    this._onRender = null;
+    if (this.map) {
+      this.map.remove();
+      this.map = null;
     }
   }
 }
