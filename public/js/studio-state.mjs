@@ -22,6 +22,7 @@ export const DEFAULT_STUDIO_STATE = Object.freeze({
   exaggeration: 1.4,
   colorMode: 'orange',
   cameraMode: 'chase',
+  speedMode: 'pace', // 'pace' | 'constant'
   pitch: 54,
   zoomOffset: 0,
   motionBlur: 45,
@@ -64,6 +65,7 @@ export const RENDER_SETTING_KEYS = Object.freeze([
   'exaggeration',
   'colorMode',
   'cameraMode',
+  'speedMode',
   'pitch',
   'zoomOffset',
   'motionBlur',

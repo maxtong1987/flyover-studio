@@ -11,7 +11,9 @@ import {
   INSTAGRAM_PRESETS,
   buildFlyoverTimeline,
   computeViewportZooms,
-  evaluateFrameAt
+  evaluateFrameAt,
+  mapFlyoverToRouteProgress,
+  mapRouteToFlyoverProgress
 } from '../public/js/flyover-math.mjs';
 import { FfmpegEncodeManager, unpackFrameBatch } from '../lib/encoder.mjs';
 import { createAppServer } from '../server.mjs';
@@ -682,8 +684,9 @@ test('split labels appear 1.5s ahead of track head and fade in smoothly rather t
   const introSplitLabels = [...introStart.drawn.keys()].filter((txt) => /^\d+ km$/.test(txt));
   assert.equal(introSplitLabels.length, 0, 'No split labels should appear at videoProgress=0');
 
-  // 2. When 3 km is 1.25s ahead of the track head (0.25s into its 0.6s fade-in)
-  const split3FlyoverSec = (split3.distanceM / timeline.totalDistanceM) * flyoverSec;
+  // 2. When 3 km is 1.25s ahead of the track head (0.25s into its 0.6s fade-in, synchronized with pace mode)
+  const split3FlyoverSec =
+    mapRouteToFlyoverProgress(timeline, split3.distanceM / timeline.totalDistanceM, 'pace') * flyoverSec;
   const vpMidFade = ACT_TIMING.INTRO_END + (split3FlyoverSec - 1.25) / durationSec;
   const midFade = renderSplitsAt(vpMidFade);
 
@@ -733,6 +736,7 @@ test('studio-state derives even dimensions, render settings, and human-readable 
   assert.equal(settings.stageWidth, 720);
   assert.equal(settings.stageHeight, 900);
   assert.equal(settings.durationSec, 30);
+  assert.equal(settings.speedMode, 'pace');
   assert.equal(settings.splitLabelSize, 2.0);
   assert.equal(settings.splitLeadAheadSec, 0.2);
   assert.equal(settings.splitFadeInSec, 0.6);
@@ -1008,6 +1012,7 @@ test('syncStudioControlsFromState and canvas/format helpers stay consistent with
     chkHudHr: { checked: false },
     splitLabelControls: { classList: makeClassList() },
     selectColorMode: { value: '' },
+    selectSpeedMode: { value: '' },
     splitUnitBtns: [
       { dataset: { splitUnit: 'km' }, classList: makeClassList() },
       { dataset: { splitUnit: 'mi' }, classList: makeClassList() }
@@ -1024,6 +1029,7 @@ test('syncStudioControlsFromState and canvas/format helpers stay consistent with
   assert.equal(mockEls.chkHudSpeed.checked, true);
   assert.equal(mockEls.chkHudHr.checked, true);
   assert.equal(mockEls.selectColorMode.value, 'orange');
+  assert.equal(mockEls.selectSpeedMode.value, 'pace');
   assert.equal(mockEls.splitUnitBtns[0].classList.has('active'), true);
   assert.equal(mockEls.splitUnitBtns[1].classList.has('active'), false);
 });
@@ -1035,6 +1041,7 @@ test('cli-config parses flags, merges JSON config with overrides, and validates 
   try {
     const tpl = buildTemplateConfig();
     assert.equal(tpl.presetId, 'reels_9_16');
+    assert.equal(tpl.speedMode, 'pace');
     assert.equal(tpl.splitLabelSize, 2.0);
     assert.equal(tpl.splitLeadAheadSec, 0.2);
     assert.equal(tpl.showElevationChart, false);
@@ -1057,13 +1064,14 @@ test('cli-config parses flags, merges JSON config with overrides, and validates 
     );
 
     const resolved = await loadAndResolveCliJob(
-      ['--config', cfgPath, '--color', 'lime', '--duration=15', '--no-hr-chart', '--quality', 'fast'],
+      ['--config', cfgPath, '--color', 'lime', '--speed-mode', 'constant', '--duration=15', '--no-hr-chart', '--quality', 'fast'],
       { cwd: tmpDir }
     );
     assert.equal(resolved.inputPath, path.join(tmpDir, 'sample.tcx'));
     assert.equal(resolved.outputPath, path.join(tmpDir, 'exports', 'out.mp4'));
     assert.equal(resolved.state.presetId, 'portrait_4_5');
     assert.equal(resolved.state.colorMode, 'lime'); // CLI flag overrides JSON config
+    assert.equal(resolved.state.speedMode, 'constant');
     assert.equal(resolved.state.durationSec, 15);
     assert.equal(resolved.state.quality, 'fast');
     assert.equal(resolved.state.units, 'imperial');
@@ -1079,6 +1087,10 @@ test('cli-config parses flags, merges JSON config with overrides, and validates 
     await assert.rejects(
       () => loadAndResolveCliJob(['run.tcx', '--color', 'neon-plaid'], { cwd: tmpDir }),
       /Invalid colorMode/
+    );
+    await assert.rejects(
+      () => loadAndResolveCliJob(['run.tcx', '--speed-mode', 'warp'], { cwd: tmpDir }),
+      /Invalid speedMode/
     );
     const badCfgPath = path.join(tmpDir, 'bad.json');
     await fs.writeFile(badCfgPath, JSON.stringify({ bogusKey: 123 }), 'utf8');
@@ -1114,4 +1126,162 @@ test('cli-config parses flags, merges JSON config with overrides, and validates 
   } finally {
     await fs.rm(tmpDir, { recursive: true, force: true });
   }
+});
+
+test('pace speedMode matches track head speed to activity pace while synchronizing splits and handling stops', () => {
+  // Build a 4 km straight run: first 2 km slow (2.0 m/s), second 2 km fast (6.0 m/s -> 3x faster)
+  const points = [];
+  const totalPts = 201;
+  let timeMs = 1_700_000_000_000;
+  for (let i = 0; i < totalPts; i += 1) {
+    const distanceM = i * 20; // 0 .. 4000m
+    const speed = distanceM < 2000 ? 2.0 : 6.0;
+    if (i > 0) {
+      timeMs += (20 / speed) * 1000;
+    }
+    points.push({
+      lat: 37.8 + distanceM * 0.000009,
+      lon: -122.5,
+      ele: 50,
+      timeMs,
+      distanceM,
+      speed,
+      hr: 150,
+      cadence: null,
+      watts: null
+    });
+  }
+
+  const activity = {
+    title: 'Slow-Fast Intervals',
+    sport: 'Running',
+    startTimeIso: new Date(points[0].timeMs).toISOString(),
+    hasElevation: true,
+    hasHeartRate: true,
+    hasCadence: false,
+    hasPower: false,
+    points
+  };
+
+  const timeline = buildFlyoverTimeline(activity, { numSamples: 400, trackSmoothness: 0.2 });
+
+  // 1. In pace mode (default), first 50% distance (2 km @ 2 m/s = 1000s) takes ~75% of flyover time
+  //    and second 50% (2 km @ 6 m/s = 333s) takes ~25% of flyover time.
+  const midFlyover = mapRouteToFlyoverProgress(timeline, 0.5, 'pace');
+  assert.ok(
+    midFlyover > 0.70 && midFlyover < 0.78,
+    `Slow first half should consume ~75% of flyover time (got ${(midFlyover * 100).toFixed(1)}%)`
+  );
+
+  // Measure head ground velocity in slow zone (flyoverT 0.2 -> 0.3) vs fast zone (flyoverT 0.85 -> 0.95)
+  const slowDistA = evaluateFrameAt(timeline, ACT_TIMING.INTRO_END + 0.20 * ACT_TIMING.FLYOVER_SPAN, { speedMode: 'pace' }).telemetry.distanceM;
+  const slowDistB = evaluateFrameAt(timeline, ACT_TIMING.INTRO_END + 0.30 * ACT_TIMING.FLYOVER_SPAN, { speedMode: 'pace' }).telemetry.distanceM;
+  const fastDistA = evaluateFrameAt(timeline, ACT_TIMING.INTRO_END + 0.85 * ACT_TIMING.FLYOVER_SPAN, { speedMode: 'pace' }).telemetry.distanceM;
+  const fastDistB = evaluateFrameAt(timeline, ACT_TIMING.INTRO_END + 0.95 * ACT_TIMING.FLYOVER_SPAN, { speedMode: 'pace' }).telemetry.distanceM;
+  const speedRatio = (fastDistB - fastDistA) / (slowDistB - slowDistA);
+  assert.ok(
+    speedRatio > 2.7 && speedRatio < 3.3,
+    `Fast section head speed should be ~3x slow section (got ${speedRatio.toFixed(2)}x)`
+  );
+
+  // 2. Inverse mapping symmetry
+  for (const p of [0, 0.15, 0.5, 0.82, 1]) {
+    const fT = mapRouteToFlyoverProgress(timeline, p, 'pace');
+    const roundTrip = mapFlyoverToRouteProgress(timeline, fT, 'pace');
+    assert.ok(Math.abs(roundTrip - p) < 1e-4, `Inverse mismatch at p=${p}: got ${roundTrip}`);
+  }
+
+  // 3. In constant mode, routeProgress is strictly linear with flyoverT
+  const constMid = evaluateFrameAt(timeline, ACT_TIMING.INTRO_END + 0.5 * ACT_TIMING.FLYOVER_SPAN, { speedMode: 'constant' });
+  assert.ok(Math.abs(constMid.routeProgress - 0.5) < 1e-6);
+
+  // 4. Split markers synchronize with pace-adjusted arrival (2 km split must NOT appear at linear 50% time)
+  const durationSec = 30;
+  const flyoverSec = durationSec * ACT_TIMING.FLYOVER_SPAN;
+  const renderSplits = (flyoverT) => {
+    const vp = ACT_TIMING.INTRO_END + flyoverT * ACT_TIMING.FLYOVER_SPAN;
+    const frameState = evaluateFrameAt(timeline, vp, { durationSec, speedMode: 'pace' });
+    const { ctx, drawnTexts } = createMockCanvasContext();
+    renderHud(ctx, {
+      width: 1080,
+      height: 1920,
+      timeline,
+      frameState,
+      settings: {
+        durationSec,
+        speedMode: 'pace',
+        showSplits: true,
+        splitUnit: 'km',
+        splitLeadAheadSec: 0.2,
+        splitFadeInSec: 0.6,
+        showHeader: false,
+        showStats: false,
+        showElevationChart: false,
+        showSpeedChart: false,
+        showHeartRateChart: false,
+        showSummaryCard: false
+      },
+      projectPoint: () => ({ x: 540, y: 960 }),
+      isExporting: false,
+      clear: true
+    });
+    return new Set(drawnTexts.map((d) => d.text));
+  };
+
+  assert.equal(renderSplits(0.50).has('2 km'), false, '2 km split should stay hidden at linear 50% time in pace mode');
+  assert.equal(
+    renderSplits(midFlyover - 0.1 / flyoverSec).has('2 km'),
+    true,
+    '2 km split should appear 0.1s ahead of actual pace-adjusted arrival'
+  );
+
+  // 5. Degenerate all-zero speed activity falls back cleanly to linear without NaN
+  const zeroSpeedActivity = {
+    ...activity,
+    points: points.map((p) => ({ ...p, speed: 0 }))
+  };
+  const zeroTimeline = buildFlyoverTimeline(zeroSpeedActivity, { numSamples: 100 });
+  const zeroMid = evaluateFrameAt(zeroTimeline, ACT_TIMING.INTRO_END + 0.5 * ACT_TIMING.FLYOVER_SPAN, { speedMode: 'pace' });
+  assert.ok(Number.isFinite(zeroMid.routeProgress));
+  assert.ok(Math.abs(zeroMid.routeProgress - 0.5) < 0.02);
+});
+
+test('finale summary card omits the TCX filename/title header and renders summary metrics cleanly', async () => {
+  const xml = await fs.readFile(path.join(SAMPLES_DIR, 'marin-headlands-trail-run.tcx'), 'utf8');
+  const activity = parseTcx(xml, 'my-secret-export-2026.tcx');
+  activity.title = 'My Secret Export 2026';
+  const timeline = buildFlyoverTimeline(activity, { numSamples: 200 });
+  const frameState = evaluateFrameAt(timeline, 0.98, { stageWidth: 1080, stageHeight: 1920 });
+
+  const { ctx, drawnTexts } = createMockCanvasContext();
+  renderHud(ctx, {
+    width: 1080,
+    height: 1920,
+    timeline,
+    frameState,
+    settings: {
+      presetId: 'reels_9_16',
+      showHeader: false,
+      showStats: false,
+      showElevationChart: false,
+      showSpeedChart: false,
+      showHeartRateChart: false,
+      showSummaryCard: true,
+      units: 'metric'
+    },
+    projectPoint: null,
+    isExporting: false,
+    clear: true
+  });
+
+  const texts = drawnTexts.map((d) => d.text);
+  assert.ok(texts.includes('ACTIVITY COMPLETE'));
+  assert.ok(texts.includes('DISTANCE'));
+  assert.ok(texts.includes('ELEV GAIN'));
+  assert.ok(texts.includes('MOVING TIME'));
+  assert.ok(texts.includes('AVG PACE'));
+  assert.ok(
+    !texts.some((t) => t.includes('My Secret Export 2026')),
+    'Finale summary card must not render the TCX filename/title header'
+  );
 });

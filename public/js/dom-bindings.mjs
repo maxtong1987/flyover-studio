@@ -57,6 +57,7 @@ export function syncStudioControlsFromState(els, state) {
     [els.selectSplitInterval, 'splitInterval'],
     [els.selectColorMode, 'colorMode'],
     [els.selectCameraMode, 'cameraMode'],
+    [els.selectSpeedMode, 'speedMode'],
     [els.selectPlaybackRate, 'playbackRate'],
     [els.selectDuration, 'durationSec'],
     [els.selectFps, 'fps']
@@ -119,6 +120,7 @@ export function collectStudioElements(doc = document) {
     rangeTrackSmooth: byId('range-track-smooth'),
     valTrackSmooth: byId('val-track-smooth'),
     selectCameraMode: byId('select-camera-mode'),
+    selectSpeedMode: byId('select-speed-mode'),
     rangePitch: byId('range-pitch'),
     valPitch: byId('val-pitch'),
     rangeZoomOffset: byId('range-zoom-offset'),
@@ -312,6 +314,7 @@ export function bindStudioControls(els, state, actions) {
 
   // 4. Camera Choreography
   bindSelect(els.selectCameraMode, state, 'cameraMode', { onChange: actions.renderCurrentFrame });
+  bindSelect(els.selectSpeedMode, state, 'speedMode', { onChange: actions.renderCurrentFrame });
   bindSlider(els.rangePitch, els.valPitch, state, 'pitch', SLIDER_FORMATTERS.pitch, actions.renderCurrentFrame);
   bindSlider(els.rangeZoomOffset, els.valZoomOffset, state, 'zoomOffset', SLIDER_FORMATTERS.zoomOffset, actions.renderCurrentFrame);
   bindSlider(els.rangeMotionBlur, els.valMotionBlur, state, 'motionBlur', SLIDER_FORMATTERS.motionBlur, actions.renderCurrentFrame);

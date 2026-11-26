@@ -1,4 +1,4 @@
-import { ACT_TIMING, clamp, lerp } from './flyover-math.mjs';
+import { ACT_TIMING, clamp, lerp, mapRouteToFlyoverProgress } from './flyover-math.mjs';
 import {
   COLOR_THEMES,
   getSampleColor,
@@ -293,6 +293,7 @@ function drawTrackHotFilament(
 export function computeSplitRevealState({
   splitDistanceM,
   totalDistanceM,
+  splitFlyoverFrac = null,
   videoProgress,
   routeProgress,
   durationSec = 30,
@@ -310,7 +311,12 @@ export function computeSplitRevealState({
   const safeDuration = Math.max(1, finiteOr(durationSec, 30));
   const flyoverSec = safeDuration * ACT_TIMING.FLYOVER_SPAN;
   const curFlyoverSec = (videoProgress - ACT_TIMING.INTRO_END) * safeDuration;
-  const splitVideoSec = (splitDistanceM / Math.max(1, totalDistanceM)) * flyoverSec;
+  const resolvedFlyoverFrac = clamp(
+    finiteOr(splitFlyoverFrac, splitDistanceM / Math.max(1, totalDistanceM)),
+    0,
+    1
+  );
+  const splitVideoSec = resolvedFlyoverFrac * flyoverSec;
   const timeUntilHit = splitVideoSec - curFlyoverSec;
   const leadSec = clamp(finiteOr(leadAheadSec, 1.5), -5, 10);
   const fadeSec = Math.max(0.05, finiteOr(fadeInSec, 0.6));
@@ -353,12 +359,20 @@ function drawSplitMarkers(ctx, { width, height, timeline, frameState, settings, 
   const badgeR = Math.max(6, 10 * s * splitScale);
   const margin = Math.max(40, pillH * 2);
 
+  const speedMode = settings.speedMode || 'pace';
+
   for (const sp of splits) {
     if (sp.index % splitInterval !== 0) continue;
 
+    const splitFlyoverFrac = mapRouteToFlyoverProgress(
+      timeline,
+      sp.distanceM / Math.max(1, timeline.totalDistanceM),
+      speedMode
+    );
     const reveal = computeSplitRevealState({
       splitDistanceM: sp.distanceM,
       totalDistanceM: timeline.totalDistanceM,
+      splitFlyoverFrac,
       videoProgress: frameState.videoProgress,
       routeProgress: frameState.routeProgress,
       durationSec: settings.durationSec,

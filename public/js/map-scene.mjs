@@ -605,7 +605,7 @@ export class FlyoverMapScene {
   }
 
   destroy() {
-    this._onRender = null;
+    this.onRender = null;
     if (this.map) {
       this.map.remove();
       this.map = null;

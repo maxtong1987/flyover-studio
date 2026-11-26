@@ -376,6 +376,131 @@ function averageNonNull(values) {
   return count > 0 ? sum / count : null;
 }
 
+const MIN_USABLE_SPEED_MPS = 0.05;
+const MIN_PACE_SPEED_FLOOR_MPS = 0.2;
+const PACE_SPEED_FLOOR_RATIO = 0.12;
+
+function buildLinearRamp(count) {
+  if (count <= 1) return new Array(count).fill(0);
+  const ramp = new Array(count);
+  for (let i = 0; i < count; i += 1) {
+    ramp[i] = i / (count - 1);
+  }
+  return ramp;
+}
+
+function resolveReferenceSpeed(samples, avgSpeedMps) {
+  if (Number.isFinite(avgSpeedMps) && avgSpeedMps > MIN_USABLE_SPEED_MPS) {
+    return avgSpeedMps;
+  }
+  let speedSum = 0;
+  let speedCount = 0;
+  for (const s of samples) {
+    if (Number.isFinite(s.speed) && s.speed > MIN_USABLE_SPEED_MPS) {
+      speedSum += s.speed;
+      speedCount += 1;
+    }
+  }
+  return speedCount > 0 ? speedSum / speedCount : 0;
+}
+
+function hasPaceTimeMap(timeline, speedMode) {
+  return speedMode !== 'constant' && Array.isArray(timeline?.paceTimeNorm) && timeline.paceTimeNorm.length >= 2;
+}
+
+function computeMovingTimeSec(trimmed, fallbackDurationSec) {
+  let movingTimeSec = 0;
+  for (let i = 1; i < trimmed.length; i += 1) {
+    const dt = (trimmed[i].timeMs - trimmed[i - 1].timeMs) / 1000;
+    const dd = trimmed[i].distanceM - trimmed[i - 1].distanceM;
+    if (dt > 0 && dt < 30 && dd / dt > 0.4) {
+      movingTimeSec += dt;
+    }
+  }
+  return movingTimeSec > 0 ? movingTimeSec : fallbackDurationSec;
+}
+
+/**
+ * Builds a cumulative normalized time table [0..1] across uniform-distance samples
+ * so track head velocity (dDistance / dVideoTime) is proportional to actual activity speed.
+ * Uses a gentle slow-motion floor so brief stops don't freeze the video indefinitely.
+ */
+function buildPaceTimeMap(samples, avgSpeedMps) {
+  const count = samples.length;
+  if (count < 2) return buildLinearRamp(count);
+
+  const refSpeed = resolveReferenceSpeed(samples, avgSpeedMps);
+  if (refSpeed <= MIN_USABLE_SPEED_MPS) {
+    return buildLinearRamp(count);
+  }
+
+  const speedFloor = Math.max(MIN_PACE_SPEED_FLOOR_MPS, refSpeed * PACE_SPEED_FLOOR_RATIO);
+  const paceTimeNorm = new Array(count).fill(0);
+  let cumTime = 0;
+  for (let i = 1; i < count; i += 1) {
+    const segDist = Math.max(1e-6, samples[i].distanceM - samples[i - 1].distanceM);
+    const v0 = Number.isFinite(samples[i - 1].speed) ? samples[i - 1].speed : refSpeed;
+    const v1 = Number.isFinite(samples[i].speed) ? samples[i].speed : refSpeed;
+    cumTime += segDist / Math.max(speedFloor, 0.5 * (v0 + v1));
+    paceTimeNorm[i] = cumTime;
+  }
+
+  if (cumTime <= 0 || !Number.isFinite(cumTime)) {
+    return buildLinearRamp(count);
+  }
+
+  for (let i = 1; i < count - 1; i += 1) {
+    paceTimeNorm[i] /= cumTime;
+  }
+  paceTimeNorm[0] = 0;
+  paceTimeNorm[count - 1] = 1;
+  return paceTimeNorm;
+}
+
+/**
+ * Maps Act 2 flyover time fraction [0, 1] to route distance progress [0, 1].
+ * In 'pace' mode, slower segments consume more video time and faster segments move quicker.
+ */
+export function mapFlyoverToRouteProgress(timeline, flyoverT, speedMode = 'pace') {
+  const t = clamp(flyoverT, 0, 1);
+  if (!hasPaceTimeMap(timeline, speedMode)) {
+    return t;
+  }
+  if (t <= 0) return 0;
+  if (t >= 1) return 1;
+
+  const table = timeline.paceTimeNorm;
+  const maxIdx = table.length - 1;
+  let lo = 0;
+  let hi = maxIdx;
+  while (lo + 1 < hi) {
+    const mid = (lo + hi) >> 1;
+    if (table[mid] <= t) lo = mid;
+    else hi = mid;
+  }
+  const t0 = table[lo];
+  const t1 = table[hi];
+  const frac = t1 > t0 ? clamp((t - t0) / (t1 - t0), 0, 1) : 0;
+  return (lo + frac) / maxIdx;
+}
+
+/**
+ * Inverse of mapFlyoverToRouteProgress: maps route distance fraction [0, 1]
+ * to the exact Act 2 flyover time fraction [0, 1] when the track head arrives there.
+ */
+export function mapRouteToFlyoverProgress(timeline, routeProgress, speedMode = 'pace') {
+  const p = clamp(routeProgress, 0, 1);
+  if (!hasPaceTimeMap(timeline, speedMode)) {
+    return p;
+  }
+  const table = timeline.paceTimeNorm;
+  const maxIdx = table.length - 1;
+  const floatIdx = p * maxIdx;
+  const idx0 = Math.floor(floatIdx);
+  const idx1 = Math.min(maxIdx, idx0 + 1);
+  return lerp(table[idx0], table[idx1], floatIdx - idx0);
+}
+
 /**
  * Builds a uniform-arc-length 3D flyover timeline from normalized TCX activity data.
  */
@@ -457,15 +582,7 @@ export function buildFlyoverTimeline(
     }
   }
 
-  let movingTimeSec = 0;
-  for (let i = 1; i < trimmed.length; i += 1) {
-    const dt = (trimmed[i].timeMs - trimmed[i - 1].timeMs) / 1000;
-    const dd = trimmed[i].distanceM - trimmed[i - 1].distanceM;
-    if (dt > 0 && dt < 30 && dd / dt > 0.4) {
-      movingTimeSec += dt;
-    }
-  }
-  if (movingTimeSec <= 0) movingTimeSec = totalDurationSec;
+  const movingTimeSec = computeMovingTimeSec(trimmed, totalDurationSec);
 
   const bounds = {
     minLat,
@@ -478,6 +595,9 @@ export function buildFlyoverTimeline(
     maxEle: Math.max(maxEle, minEle + 1)
   };
 
+  const avgSpeedMps = movingTimeSec > 0 ? totalDistanceM / movingTimeSec : 0;
+  const paceTimeNorm = buildPaceTimeMap(samples, avgSpeedMps);
+
   return {
     title: activity.title,
     sport: activity.sport,
@@ -486,7 +606,7 @@ export function buildFlyoverTimeline(
     totalElevationGainM,
     totalDurationSec,
     movingTimeSec,
-    avgSpeedMps: movingTimeSec > 0 ? totalDistanceM / movingTimeSec : 0,
+    avgSpeedMps,
     avgHr: averageNonNull(samples.map((s) => s.hr)),
     avgWatts: averageNonNull(samples.map((s) => s.watts)),
     hasElevation: activity.hasElevation,
@@ -499,6 +619,7 @@ export function buildFlyoverTimeline(
     maxHr: Number.isFinite(maxHr) ? Math.max(maxHr, minHr + 10) : 185,
     bounds,
     samples,
+    paceTimeNorm,
     fullCoordinates: samples.map((s) => [s.lon, s.lat]),
     splitsKm: buildSplitMarkers(samples, totalDistanceM, 1000, 'km'),
     splitsMi: buildSplitMarkers(samples, totalDistanceM, 1609.344, 'mi')
@@ -617,7 +738,8 @@ export function evaluateFrameAt(timeline, videoProgress, settings = {}) {
     camera = lerpCamera(introStartCam, startCam, t);
   } else if (vp <= ACT_TIMING.FLYOVER_END) {
     act = 'flyover';
-    routeProgress = (vp - ACT_TIMING.INTRO_END) / ACT_TIMING.FLYOVER_SPAN;
+    const flyoverT = (vp - ACT_TIMING.INTRO_END) / ACT_TIMING.FLYOVER_SPAN;
+    routeProgress = mapFlyoverToRouteProgress(timeline, flyoverT, settings.speedMode || 'pace');
     camera = getAct2Camera(timeline, routeProgress, settings, zooms);
   } else {
     act = 'finale';

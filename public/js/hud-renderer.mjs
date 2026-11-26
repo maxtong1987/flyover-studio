@@ -451,13 +451,13 @@ function drawChartStack(ctx, { width, height, sidePad, bottomMargin, isReels, ch
   });
 }
 
-function drawFinaleSummaryCard(ctx, width, height, timeline, alpha, accent, units, s) {
+function drawFinaleSummaryCard(ctx, { width, height, timeline, alpha, accent, sport, units, s }) {
   if (alpha <= 0.01) return;
   ctx.save();
   ctx.globalAlpha = clamp(alpha, 0, 1);
 
   const cardW = Math.min(width * 0.86, 680 * s);
-  const cardH = Math.round(290 * s);
+  const cardH = Math.round(236 * s);
   const cx = (width - cardW) / 2;
   const cy = (height - cardH) / 2 + (1 - alpha) * 24 * s;
 
@@ -473,24 +473,19 @@ function drawFinaleSummaryCard(ctx, width, height, timeline, alpha, accent, unit
   ctx.stroke();
 
   ctx.fillStyle = accent;
-  roundRectPath(ctx, cx + 28 * s, cy + 24 * s, 44 * s, 5 * s, 3 * s);
+  roundRectPath(ctx, cx + 28 * s, cy + 27 * s, 44 * s, 5 * s, 3 * s);
   ctx.fill();
 
   ctx.fillStyle = accent;
   ctx.font = `700 ${Math.round(17 * s)}px Inter, system-ui, sans-serif`;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  ctx.fillText('ACTIVITY COMPLETE', cx + 82 * s, cy + 27 * s);
-
-  ctx.fillStyle = '#f8fafc';
-  ctx.font = `800 ${Math.round(30 * s)}px Inter, system-ui, sans-serif`;
-  const titleText = timeline.title.length > 32 ? `${timeline.title.slice(0, 31)}…` : timeline.title;
-  ctx.fillText(titleText, cx + 28 * s, cy + 68 * s);
+  ctx.fillText('ACTIVITY COMPLETE', cx + 82 * s, cy + 30 * s);
 
   const distFmt = formatDistance(timeline.totalDistanceM, units);
   const gainFmt = formatElevation(timeline.totalElevationGainM, units);
   const durFmt = formatDuration(timeline.movingTimeSec);
-  const avgPace = formatPaceOrSpeed(timeline.avgSpeedMps, timeline.sport, units);
+  const avgPace = formatPaceOrSpeed(timeline.avgSpeedMps, sport || timeline.sport, units);
 
   const stats = [
     { label: 'DISTANCE', val: `${distFmt.value} ${distFmt.unit}` },
@@ -500,8 +495,8 @@ function drawFinaleSummaryCard(ctx, width, height, timeline, alpha, accent, unit
   ];
 
   const colW = (cardW - 56 * s) / 2;
-  const startY = cy + 122 * s;
-  const rowH = 74 * s;
+  const startY = cy + 78 * s;
+  const rowH = 76 * s;
 
   stats.forEach((st, idx) => {
     const col = idx % 2;
@@ -597,7 +592,16 @@ export function renderHud(
   drawChartStack(ctx, { width, height, sidePad, bottomMargin, isReels, chartSpecs, timeline, frameState, s });
 
   if (settings.showSummaryCard !== false && frameState.outroSummaryAlpha > 0.01) {
-    drawFinaleSummaryCard(ctx, width, height, timeline, frameState.outroSummaryAlpha, accent, units, s);
+    drawFinaleSummaryCard(ctx, {
+      width,
+      height,
+      timeline,
+      alpha: frameState.outroSummaryAlpha,
+      accent,
+      sport,
+      units,
+      s
+    });
   }
 
   ctx.save();

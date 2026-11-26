@@ -9,7 +9,7 @@ A web application and headless CLI that turns Garmin `.tcx` (and `.gpx`) activit
 - **MapDirector-Style Route Visuals**:
   - Continuous glowing head-to-tail comet track fade without dark edge artifacts.
   - Glow, hot filament, athlete beacon, and HUD charts dynamically match the chosen route color (solid themes or Pace / Elevation / Heart Rate heatmaps).
-  - Configurable track smoothing and camera motion blur.
+  - Pace-matched track head speed (`Match Activity Pace` default or `Constant Speed`), configurable track smoothing, and camera motion blur.
   - Configurable split labels (`km` / `mi`, interval, unit text toggle, label size, lead-ahead reveal timing, and smooth fade-in duration).
 - **Broadcast Telemetry HUD**: Activity header, live distance/elevation/pace/HR/power cards, and optional Elevation, Speed/Pace, and Heart Rate profile charts.
 - **Instagram MP4 Export**:
